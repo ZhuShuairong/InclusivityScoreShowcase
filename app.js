@@ -2,6 +2,11 @@ let allEvents = [];
 let filteredEvents = [];
 let currentChart = null;
 
+// Pagination settings
+let currentPage = 1;
+const itemsPerPage = 24; // Show 24 events per page
+let totalPages = 1;
+
 // Load CSV on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadCSV();
@@ -17,44 +22,22 @@ function loadCSV() {
         header: true,
         dynamicTyping: true,
         complete: function(results) {
-            console.log('CSV loaded successfully');
-            console.log('Total rows:', results.data.length);
-            console.log('First row:', results.data[0]);
-            console.log('Column names:', results.meta.fields);
-            
-            // Check for parsing errors
-            if (results.errors.length > 0) {
-                console.error('Parsing errors:', results.errors);
-            }
-            
-            allEvents = results.data.filter(row => row.event_id); // Remove empty rows
-            console.log('Events after filtering empty rows:', allEvents.length);
-            
-            if (allEvents.length > 0) {
-                console.log('Sample event:', allEvents[0]);
-                console.log('Event name:', allEvents[0].name);
-                console.log('Event score:', allEvents[0].inclusivity_score_100);
-                console.log('suitable_for_young type:', typeof allEvents[0].suitable_for_young);
-                console.log('suitable_for_young value:', allEvents[0].suitable_for_young);
-            }
-            
+            allEvents = results.data.filter(row => row.event_id);
             filteredEvents = [...allEvents];
-            console.log('Initial filtered events:', filteredEvents.length);
             
             populateFilterOptions();
-            applyFilters();
+            currentPage = 1; // Reset to first page
+            updatePagination();
+            displayCurrentPage();
             updateResultCount();
         },
         error: function(error) {
-            console.error('CSV loading error:', error);
             container.innerHTML = `<div class="col-12 alert alert-danger">Error loading data: ${error.message}</div>`;
         }
     });
 }
 
-
 function populateFilterOptions() {
-    // Populate month filter
     const months = [...new Set(allEvents.map(e => e.month))].sort();
     const monthFilter = document.getElementById('monthFilter');
     months.forEach(month => {
@@ -68,105 +51,80 @@ function populateFilterOptions() {
 }
 
 function setupEventListeners() {
-    // Search box
     document.getElementById('searchBox').addEventListener('input', applyFilters);
-    
-    // Dropdowns
     document.getElementById('monthFilter').addEventListener('change', applyFilters);
     document.getElementById('costFilter').addEventListener('change', applyFilters);
     document.getElementById('activityFilter').addEventListener('change', applyFilters);
     
-    // Score range
     const scoreFilter = document.getElementById('scoreFilter');
     scoreFilter.addEventListener('input', function() {
         document.getElementById('scoreValue').textContent = this.value;
         applyFilters();
     });
     
-    // Age checkboxes
     document.querySelectorAll('.age-filter').forEach(checkbox => {
         checkbox.addEventListener('change', applyFilters);
     });
     
-    // Sort
     document.getElementById('sortBy').addEventListener('change', function() {
         sortAndDisplayEvents();
     });
     
-    // Reset button
     document.getElementById('resetFilters').addEventListener('click', resetFilters);
 }
 
 function applyFilters() {
-    console.log('=== applyFilters called ===');
-    console.log('Total events before filtering:', allEvents.length);
-    
     const searchTerm = document.getElementById('searchBox').value.toLowerCase();
     const monthFilter = document.getElementById('monthFilter').value;
     const costFilter = document.getElementById('costFilter').value;
     const activityFilter = document.getElementById('activityFilter').value;
     const minScore = parseFloat(document.getElementById('scoreFilter').value);
     
-    // Age filters
     const youngChecked = document.getElementById('youngFilter').checked;
     const adultChecked = document.getElementById('adultFilter').checked;
     const seniorChecked = document.getElementById('seniorFilter').checked;
     
-    console.log('Filters:', {
-        searchTerm,
-        monthFilter,
-        costFilter,
-        activityFilter,
-        minScore,
-        youngChecked,
-        adultChecked,
-        seniorChecked
-    });
-    
     filteredEvents = allEvents.filter(event => {
-        // Search filter
         if (searchTerm && !event.name.toLowerCase().includes(searchTerm)) {
             return false;
         }
         
-        // Month filter
         if (monthFilter && event.month !== monthFilter) {
             return false;
         }
         
-        // Cost filter
         if (costFilter && event.cost !== costFilter) {
             return false;
         }
         
-        // Activity filter
         if (activityFilter && event.activity_level !== activityFilter) {
             return false;
         }
         
-        // Score filter
         if (event.inclusivity_score_100 < minScore) {
             return false;
         }
         
-        // Age filter - FIXED LOGIC
-        if (!youngChecked && event.suitable_for_young) {
+        // Handle both boolean and string values
+        const isYoungSuitable = event.suitable_for_young === true || event.suitable_for_young === 'True' || event.suitable_for_young === 1;
+        const isAdultSuitable = event.suitable_for_adult === true || event.suitable_for_adult === 'True' || event.suitable_for_adult === 1;
+        const isSeniorSuitable = event.suitable_for_senior === true || event.suitable_for_senior === 'True' || event.suitable_for_senior === 1;
+        
+        if (!youngChecked && isYoungSuitable) {
             return false;
         }
-        if (!adultChecked && event.suitable_for_adult) {
+        if (!adultChecked && isAdultSuitable) {
             return false;
         }
-        if (!seniorChecked && event.suitable_for_senior) {
+        if (!seniorChecked && isSeniorSuitable) {
             return false;
         }
         
         return true;
     });
     
-    console.log('Events after filtering:', filteredEvents.length);
-    
+    currentPage = 1; // Reset to first page when filters change
     sortAndDisplayEvents();
-    updateResultCount();
 }
 
 function sortAndDisplayEvents() {
@@ -187,10 +145,17 @@ function sortAndDisplayEvents() {
         }
     });
     
-    displayEvents();
+    updatePagination();
+    displayCurrentPage();
+    updateResultCount();
 }
 
-function displayEvents() {
+function updatePagination() {
+    totalPages = Math.ceil(filteredEvents.length / itemsPerPage);
+    renderPaginationControls();
+}
+
+function displayCurrentPage() {
     const container = document.getElementById('eventsContainer');
     
     if (filteredEvents.length === 0) {
@@ -198,13 +163,23 @@ function displayEvents() {
         return;
     }
     
+    // Calculate slice indices for current page
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const currentEvents = filteredEvents.slice(startIndex, endIndex);
+    
     container.innerHTML = '';
     
-    filteredEvents.forEach(event => {
+    currentEvents.forEach(event => {
         const col = document.createElement('div');
         col.className = 'col-md-6 col-lg-4 mb-4';
         
         const scoreClass = getScoreClass(event.inclusivity_score_100);
+        
+        // Handle both boolean and string values for suitable_for fields
+        const isYoungSuitable = event.suitable_for_young === true || event.suitable_for_young === 'True' || event.suitable_for_young === 1;
+        const isAdultSuitable = event.suitable_for_adult === true || event.suitable_for_adult === 'True' || event.suitable_for_adult === 1;
+        const isSeniorSuitable = event.suitable_for_senior === true || event.suitable_for_senior === 'True' || event.suitable_for_senior === 1;
         
         col.innerHTML = `
             <div class="card event-card" data-event-id="${event.event_id}">
@@ -224,9 +199,9 @@ function displayEvents() {
                     
                     <div class="mb-2">
                         <strong>Suitable for:</strong><br>
-                        ${event.suitable_for_young ? '<span class="badge bg-success age-badge">Youth</span>' : ''}
-                        ${event.suitable_for_adult ? '<span class="badge bg-success age-badge">Adult</span>' : ''}
-                        ${event.suitable_for_senior ? '<span class="badge bg-success age-badge">Senior</span>' : ''}
+                        ${isYoungSuitable ? '<span class="badge bg-success age-badge">Youth</span>' : ''}
+                        ${isAdultSuitable ? '<span class="badge bg-success age-badge">Adult</span>' : ''}
+                        ${isSeniorSuitable ? '<span class="badge bg-success age-badge">Senior</span>' : ''}
                     </div>
                     
                     <div class="mt-3">
@@ -251,6 +226,87 @@ function displayEvents() {
         
         container.appendChild(col);
     });
+    
+    // Scroll to top of results
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function renderPaginationControls() {
+    const paginationContainer = document.getElementById('paginationControls');
+    if (!paginationContainer) return;
+    
+    if (totalPages <= 1) {
+        paginationContainer.innerHTML = '';
+        return;
+    }
+    
+    let paginationHTML = '<nav><ul class="pagination justify-content-center">';
+    
+    // Previous button
+    paginationHTML += `
+        <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" data-page="${currentPage - 1}">Previous</a>
+        </li>
+    `;
+    
+    // Page numbers with smart truncation
+    const maxVisiblePages = 7;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    
+    if (endPage - startPage < maxVisiblePages - 1) {
+        startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    
+    // First page
+    if (startPage > 1) {
+        paginationHTML += `<li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>`;
+        if (startPage > 2) {
+            paginationHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+        }
+    }
+    
+    // Page numbers
+    for (let i = startPage; i <= endPage; i++) {
+        paginationHTML += `
+            <li class="page-item ${i === currentPage ? 'active' : ''}">
+                <a class="page-link" href="#" data-page="${i}">${i}</a>
+            </li>
+        `;
+    }
+    
+    // Last page
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            paginationHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+        }
+        paginationHTML += `<li class="page-item"><a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a></li>`;
+    }
+    
+    // Next button
+    paginationHTML += `
+        <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+            <a class="page-link" href="#" data-page="${currentPage + 1}">Next</a>
+        </li>
+    `;
+    
+    paginationHTML += '</ul></nav>';
+    paginationContainer.innerHTML = paginationHTML;
+    
+    // Add click handlers
+    paginationContainer.querySelectorAll('.page-link').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (!this.parentElement.classList.contains('disabled')) {
+                const page = parseInt(this.dataset.page);
+                if (page && page !== currentPage) {
+                    currentPage = page;
+                    displayCurrentPage();
+                    renderPaginationControls();
+                }
+            }
+        });
+    });
 }
 
 function getScoreClass(score) {
@@ -266,10 +322,8 @@ function formatLabel(text) {
 }
 
 function showEventDetails(event) {
-    // Set modal title
     document.getElementById('modalEventName').textContent = event.name;
     
-    // Create details HTML
     const detailsHTML = `
         <h6>Overall Inclusivity Score</h6>
         <h2 class="text-primary">${event.inclusivity_score_100.toFixed(2)} / 100</h2>
@@ -330,11 +384,8 @@ function showEventDetails(event) {
     `;
     
     document.getElementById('modalEventDetails').innerHTML = detailsHTML;
-    
-    // Create radar chart
     createRadarChart(event);
     
-    // Show modal
     const modal = new bootstrap.Modal(document.getElementById('eventModal'));
     modal.show();
 }
@@ -342,7 +393,6 @@ function showEventDetails(event) {
 function createRadarChart(event) {
     const ctx = document.getElementById('radarChart').getContext('2d');
     
-    // Destroy previous chart if exists
     if (currentChart) {
         currentChart.destroy();
     }
@@ -400,7 +450,9 @@ function createRadarChart(event) {
 
 function updateResultCount() {
     const countElement = document.getElementById('resultCount');
-    countElement.textContent = `Showing ${filteredEvents.length} of ${allEvents.length} events`;
+    const startIndex = (currentPage - 1) * itemsPerPage + 1;
+    const endIndex = Math.min(currentPage * itemsPerPage, filteredEvents.length);
+    countElement.textContent = `Showing ${startIndex}-${endIndex} of ${filteredEvents.length} events (Page ${currentPage} of ${totalPages})`;
 }
 
 function resetFilters() {
@@ -415,5 +467,6 @@ function resetFilters() {
         checkbox.checked = true;
     });
     
+    currentPage = 1;
     applyFilters();
 }
