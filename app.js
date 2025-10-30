@@ -17,18 +17,41 @@ function loadCSV() {
         header: true,
         dynamicTyping: true,
         complete: function(results) {
+            console.log('CSV loaded successfully');
+            console.log('Total rows:', results.data.length);
+            console.log('First row:', results.data[0]);
+            console.log('Column names:', results.meta.fields);
+            
+            // Check for parsing errors
+            if (results.errors.length > 0) {
+                console.error('Parsing errors:', results.errors);
+            }
+            
             allEvents = results.data.filter(row => row.event_id); // Remove empty rows
+            console.log('Events after filtering empty rows:', allEvents.length);
+            
+            if (allEvents.length > 0) {
+                console.log('Sample event:', allEvents[0]);
+                console.log('Event name:', allEvents[0].name);
+                console.log('Event score:', allEvents[0].inclusivity_score_100);
+                console.log('suitable_for_young type:', typeof allEvents[0].suitable_for_young);
+                console.log('suitable_for_young value:', allEvents[0].suitable_for_young);
+            }
+            
             filteredEvents = [...allEvents];
+            console.log('Initial filtered events:', filteredEvents.length);
             
             populateFilterOptions();
             applyFilters();
             updateResultCount();
         },
         error: function(error) {
+            console.error('CSV loading error:', error);
             container.innerHTML = `<div class="col-12 alert alert-danger">Error loading data: ${error.message}</div>`;
         }
     });
 }
+
 
 function populateFilterOptions() {
     // Populate month filter
@@ -75,6 +98,9 @@ function setupEventListeners() {
 }
 
 function applyFilters() {
+    console.log('=== applyFilters called ===');
+    console.log('Total events before filtering:', allEvents.length);
+    
     const searchTerm = document.getElementById('searchBox').value.toLowerCase();
     const monthFilter = document.getElementById('monthFilter').value;
     const costFilter = document.getElementById('costFilter').value;
@@ -85,6 +111,17 @@ function applyFilters() {
     const youngChecked = document.getElementById('youngFilter').checked;
     const adultChecked = document.getElementById('adultFilter').checked;
     const seniorChecked = document.getElementById('seniorFilter').checked;
+    
+    console.log('Filters:', {
+        searchTerm,
+        monthFilter,
+        costFilter,
+        activityFilter,
+        minScore,
+        youngChecked,
+        adultChecked,
+        seniorChecked
+    });
     
     filteredEvents = allEvents.filter(event => {
         // Search filter
@@ -112,7 +149,7 @@ function applyFilters() {
             return false;
         }
         
-        // Age filter
+        // Age filter - FIXED LOGIC
         if (!youngChecked && event.suitable_for_young) {
             return false;
         }
@@ -125,6 +162,8 @@ function applyFilters() {
         
         return true;
     });
+    
+    console.log('Events after filtering:', filteredEvents.length);
     
     sortAndDisplayEvents();
     updateResultCount();
